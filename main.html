@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全国空气质量数据可视化平台</title>
+    <script src="assets/js/echarts.min.js"></script>
+    <script src="assets/theme/dark.js"></script>
+    <script src="assets/theme/vintage.js"></script>
+    <script src="assets/theme/wonderland.js"></script>
+    <script src="assets/js/jquery-3.6.0.js"></script>
+    <script src="assets/js/adcode_info.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        input {
+            width: 70px;
+        }
+
+        body {
+            background-color: rgba(254,248,239,1);
+        }
+    </style>
+</head>
+
+<body style="width: 1700px;">
+<div style="position: fixed;z-index:99; border: 1px solid black;width: 100%;height: 25px;padding: 5px;background-color: black">
+    <button onclick="javascript:bakc_china_map()">全国地图</button>
+    <select id="select_project">
+        <option value="0">PM2.5</option>
+        <option value="1">PM10</option>
+        <option value="2">SO2</option>
+        <option value="3">NO2</option>
+        <option value="4">CO</option>
+        <option value="5">O3</option>
+        <option value="6">AQI</option>
+
+    </select>
+    <input id="input_adcode" type="number" value="100000">
+    <input id="hope_year" type="number" value="2013">
+    <button onclick="javascript:day_control(-1,0,0)">上一年</button>
+    <button onclick="javascript:day_control(1,0,0)">下一年</button>
+    <input id="hope_month" type="number" value="1">
+    <button onclick="javascript:day_control(0,-1,0)">上一月</button>
+    <button onclick="javascript:day_control(0,1,0)">下一月</button>
+    <input id="hope_day" type="number" value="1">
+    <button onclick="javascript:day_control(0,0,-1)">上一天</button>
+    <button onclick="javascript:day_control(0,0,1)">下一天</button>
+    <button onclick="javascript:input_refresh()">按照输入的数据刷新地图</button>
+</div>
+<div style="position: absolute;width: 1600px;height: 750px;margin-top: 50px;">
+    <div style="float: left;width: 1000px;height: 600px;">
+        <h2 style="color: black;text-align: center">空气质量状况图 <span id="current_project_name"></span><span
+                id="current_day"></span></h2>
+        <div id="map_chart01" style="width: 100%;height: 90%"></div>
+    </div>
+    <div style="float:right;width: 450px;height: 500px;margin-top: 100px;margin-right: 100px;">
+        <div id="radar_charts01" style="width: 100%;height:100%"></div>
+    </div>
+    <div style="float:left; height:300px;width: 1700px;">
+        <div id="line_aqi_chart_01" style="height: 100%;width: 100%"></div>
+    </div>
+    <div style="float: left;width:750px;height: 600px;margin-top: 100px">
+        <div id="aqi_map_echart" style="width:100%;height: 100%"></div>
+    </div>
+    <div style="float: left;width:750px;height: 600px;margin-top: 100px">
+        <div id="wind_echart_01" style="width:100%;height: 100%"></div>
+    </div>
+    <div style="float: left;width:750px;height: 600px;margin-top: 100px">
+        <div id="pm25_map_echart_02" style="width:100%;height: 100%"></div>
+    </div>
+    <div style="float: left;width:750px;height: 600px;margin-top: 100px">
+        <div id="so2_map_echart" style="width:100%;height: 100%"></div>
+    </div>
+</div>
+
+<!-- 省份地图 和 初始化等引导入口 -->
+<script>
+    let theme_name = 'vintage'
+
+    var MyMapCharts = echarts.init(document.querySelector('#map_chart01'), theme_name)
+    const project_name = ["PM2.5", "PM10", "SO2", "NO2", "CO", "O3", "AQI"]
+    current_project_name = project_name[0]
+
+    window.onload = function () {
+        document.getElementById("current_project_name").innerText = current_project_name
+        refresh_by_adcode_and_date_and_item(100000, 2013, 1, 1, current_project_name)
+
+
+        setTimeout(input_refresh, 3000)
+
+        // setTimeout(get_wind_echart_show, 2000, 2013, 1, 1)
+        // setTimeout(get_aqi_map_hot_echart_show,2000,2013,1,1)
+        // 等待中国地图载入，所以第一次可以延时2000秒，后面就不必了
+
+        MyMapCharts.on("click", async (args) => {
+            // console.log('click', args);
+            const adcode = args.data.adcode
+            document.querySelector("#input_adcode").value = adcode
+            input_refresh()
+        })
+
+        MyMapCharts.getZr().on("dblclick", async (args) => {
+            // console.log('dblclick', args);
+            if (args.target == undefined) {
+                const adcode = document.querySelector("#input_adcode").value
+                if (adcode_info[adcode].parent !== null) {
+                    document.querySelector("#input_adcode").value = adcode_info[adcode].parent
+                    input_refresh()
+                }
+            }
+        })
+
+        line_aqi_chart01.on("click", async (args) => {
+            let ymd = args.name
+            document.querySelector("#hope_year").value = parseInt(ymd.slice(0, 4))
+            document.querySelector("#hope_month").value = parseInt(ymd.slice(5, 7))
+            document.querySelector("#hope_day").value = parseInt(ymd.slice(8, 10))
+
+            input_refresh()
+        })
+    }
+
+
+    $("#select_project").change(function () {
+        let val = $(this).val()
+        change_current_project_name(val)
+    })
+
+    function change_current_project_name(project_index) {
+        current_project_name = project_name[project_index]
+        document.getElementById("current_project_name").innerText = current_project_name
+        input_refresh()
+    }
+
+    function bakc_china_map() {
+        document.querySelector("#input_adcode").value = 100000
+        input_refresh()
+    }
+
+    function day_control(y, m, d) {
+        let year = parseInt(document.querySelector("#hope_year").value) + y
+        let month = parseInt(document.querySelector("#hope_month").value) + m
+        let day = parseInt(document.querySelector("#hope_day").value) + d
+        if (([1, 3, 5, 7, 8, 10, 12].indexOf(month) != -1 && day >= 32)
+            || ([4, 6, 9, 11].indexOf(month) != -1 && day >= 31)
+            || ([2].indexOf(month) != -1 && year % 4 != 0 && day >= 29)
+            || ([2].indexOf(month) != -1 && year % 4 == 0 && day >= 30)) {
+            month++
+            day = 1
+        }
+        if (month == 13) {
+            month = 1
+            year++
+        }
+        if (month == 0) {
+            month = 12
+            year--
+        }
+        document.querySelector("#hope_year").value = year
+        document.querySelector("#hope_month").value = month
+        document.querySelector("#hope_day").value = day
+
+        input_refresh()
+    }
+
+
+    function input_refresh() {
+        const input_adcode = document.querySelector("#input_adcode").value
+        let year = document.querySelector("#hope_year").value
+        let month = document.querySelector("#hope_month").value
+        let day = document.querySelector("#hope_day").value
+        // const project_name = ["PM2.5", "PM10", "SO2", "NO2", "CO", "O3"]
+        document.querySelector("#current_day").innerText = ' ' + year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2)
+        refresh_by_adcode_and_date_and_item(input_adcode, year, month, day, current_project_name)
+
+        radar_charts01_show(input_adcode, year, month, day)
+        line_aqi_chart01_show(input_adcode)
+        aqi_map_echart_show(year,month,day)
+        get_wind_echart_show(year, month, day)
+        get_aqi_map_hot_echart_show(year, month, day)
+        so2_map_echart_show(year, month, day)
+
+    }
+
+
+    function refresh_by_adcode_and_date_and_item(adcode, year, month, day, air_item_name) {
+        let geo_json_path
+        if (adcode_info[adcode].childrenNum > 0) {
+            geo_json_path = "./geo/" + adcode + "_full.json"
+        } else {
+            geo_json_path = "./geo/" + adcode + ".json"
+        }
+        month = ("0" + month).slice(-2)
+        day = ("0" + day).slice(-2)
+        const data_json_path = "./data/day_data/" + year + month + "/day_" + year + month + day + ".json"
+        refresh(geo_json_path, data_json_path, air_item_name)
+    }
+
+
+    function refresh(geo_json_path, data_json_path, air_item_name) {
+        $.when($.getJSON(geo_json_path), $.getJSON(data_json_path)).then(function (ret, pmvalue) {
+
+            let map_adcode = geo_json_path.slice(6, 12)
+
+            let max_should_be = 300
+            if (air_item_name == 'PM10') {
+                max_should_be = 350
+            } else if (air_item_name == 'PM2.5') {
+                max_should_be = 150
+            } else if (air_item_name == 'SO2') {
+                max_should_be = 800
+            } else if (air_item_name == 'NO2') {
+                max_should_be = 280
+            } else if (air_item_name == 'O3') {
+                max_should_be = 400
+            } else if (air_item_name == 'CO') {
+                max_should_be = 24
+            } else if (air_item_name == 'AQI') {
+                max_should_be = 200
+            }
+
+            ret = ret[0]
+            pmvalue = pmvalue[0]
+            let maxmax = 0
+
+            echarts.registerMap(map_adcode, ret)
+
+            var airData = ret.features.map((k) => {
+
+                if (k.properties.name == "")
+                    return {name: k.properties.name, value: 0}
+                let v = pmvalue[k.properties.adcode][air_item_name] ? pmvalue[k.properties.adcode][air_item_name] : 0
+                if (maxmax < v) {
+                    maxmax = v
+                }
+                return {name: k.properties.name, value: v, adcode: k.properties.adcode}
+            })
+
+            // console.log(map_adcode, airData)
+
+            geo_center = adcode_info[parseInt(geo_json_path.slice(6, 12))].centroid
+
+            var option = {
+                geo: {
+                    name: '空气质量',
+                    type: 'map',
+                    map: map_adcode,
+                    roam: true,
+                    // 允许缩放
+                    label: {
+                        show: true,
+                        // 展示标签省份
+                    },
+                    zoom: 1.5,
+                    // 设置地图中心点坐标
+                    center: geo_center
+                },
+                tooltip: {
+                    trigger: 'item',
+                    showDelay: 0,
+                    transitionDuration: 0.2,
+                    formatter: function (params) {
+                        const valueStr = params.value
+                        return current_project_name + '<br/>' + params.name + ': ' + valueStr;
+                    }
+                },
+                series: [
+                    {
+                        emphasis: {
+                            label: {
+                                show: true
+                            }
+                        },
+                        data: airData,
+                        geoIndex: 0,
+                        // 和第0个GEO配置
+                        type: 'map',
+                    }
+                ],
+                visualMap: {
+                    left:80,
+                    bottom:20,
+                    min: 0,
+                    max: max_should_be,
+                    range: [0, max_should_be],
+                    inRange: {
+                        color: ['lightskyblue', 'yellow', 'orangered']
+                        // 颜色
+                    },
+                    text: ['High', 'Low'],
+                    calculable: true,
+                    textStyle: {
+                        color: 'black'
+                    }
+                    // 开启筛选的选项
+                }
+            }
+
+            MyMapCharts.setOption(option)
+        })
+    }
+
+</script>
+
+
+
+<!-- 雷达图 -->
+<script src="assets/js/component/radar_map.js"></script>
+<!-- AQI折线图 -->
+<script src="assets/js/component/line_aqi.js"></script>
+<!-- 风力图 -->
+<script src="assets/js/component/country_wind.js"></script>
+<!-- PM2.5全国分布地理图 -->
+<script src="assets/js/component/country_pm2.5.js"></script>
+<!-- SO2全国分布地理图 -->
+<script src="assets/js/component/country_so2.js"></script>
+<!-- AQI全国分布地理图 -->
+<script src="assets/js/component/country_aqi.js"></script>
+
+
+</body>
+
+</html>
